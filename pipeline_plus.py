@@ -2,12 +2,11 @@ import os
 import re
 import json
 import requests
-import tiktoken
 from urllib.parse import urlparse, parse_qs
 from youtube_transcript_api import YouTubeTranscriptApi
 from dotenv import load_dotenv
 
-load_dotenv()  # .env 파일 로드
+load_dotenv()  # .env 에서 환경변수 불러오기
 
 def extract_video_id(youtube_url: str) -> str:
     u = urlparse(youtube_url)
@@ -23,51 +22,63 @@ def extract_video_id(youtube_url: str) -> str:
 def fetch_transcript_text(video_id: str):
     try:
         srt = YouTubeTranscriptApi.get_transcript(video_id, languages=["ko", "en"])
-        return " ".join([x["text"] for x in srt if x["text"].strip()])
+        return " ".join(x["text"] for x in srt if x["text"].strip())
     except Exception:
         return None
 
+def split_text_by_chars(text: str, chunk_size=6000, overlap=300):
+    chunks = []
+    i = 0
+    n = len(text)
+    while i < n:
+        end = min(i + chunk_size, n)
+        chunks.append(text[i:end])
+        if end == n:
+            break
+        i = max(0, end - overlap)
+    return chunks
+
 def _gemini(payload):
-    url = (
-        "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key="
-        + os.environ["GEMINI_API_KEY"]
-    )
+    api_key = os.getenv("GEMINI_API_KEY")
+    if not api_key:
+        return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다."}
+    url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" + api_key
     r = requests.post(url, json=payload, timeout=120)
-    r.raise_for_status()
+    try:
+        r.raise_for_status()
+    except requests.HTTPError:
+        return {"error": f"Gemini HTTP {r.status_code}", "body": r.text}
     return r.json()
 
-def _extract_text(response_json):
+def _extract_text(j):
     try:
-        return response_json["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return j["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception:
-        return json.dumps(response_json, ensure_ascii=False)
+        return json.dumps(j, ensure_ascii=False)
 
-def split_text(text, max_tokens=3000):
-    enc = tiktoken.get_encoding("cl100k_base")
-    tokens = enc.encode(text)
-    return [enc.decode(tokens[i:i+max_tokens]) for i in range(0, len(tokens), max_tokens)]
-
-def summarize_long_text(text):
-    chunks = split_text(text)
-    partial_summaries = []
-
+def summarize_long_text(text: str) -> str:
+    chunks = split_text_by_chars(text, chunk_size=6000, overlap=300)
+    partials = []
     for i, ch in enumerate(chunks, 1):
-        prompt = f"[Part {i}/{len(chunks)}] 아래 내용을 간결히 요약:\n\n{ch}"
+        prompt = (
+            f"[부분 {i}/{len(chunks)}] 아래 내용을 핵심 위주로 간결히 요약:\n\n{ch}"
+        )
         j = _gemini({"contents": [{"parts": [{"text": prompt}]}]})
-        partial_summaries.append(f"[요약 {i}]\n{_extract_text(j)}")
+        partials.append(f"[부분요약 {i}]\n{_extract_text(j)}")
 
     final_prompt = (
-        "다음은 긴 영상 내용의 부분 요약입니다. 이를 중복 없이 하나의 **구조화된 통합 요약**으로 재정리해주세요:\n\n"
-        + "\n\n".join(partial_summaries)
+        "아래 부분요약들을 바탕으로 중복 없이, 논리 흐름이 있는 통합 장문 요약을 작성하라. "
+        "섹션: 요지/핵심포인트/근거·데이터/반론·한계/실무적 시사점/결론 순으로 한국어로 출력.\n\n"
+        + "\n\n".join(partials)
     )
     j = _gemini({"contents": [{"parts": [{"text": final_prompt}]}]})
     return _extract_text(j)
 
 def propose_solutions(summary_or_text: str) -> str:
     prompt = (
-        "너는 실전 컨설턴트다. 아래 내용을 기반으로 **실행 솔루션 7개**를 제시하라. "
-        "각 항목은 ①짧은 제목 ②왜 필요한지(1문장) ③3단계 체크리스트로 구성하고, "
-        "가능하면 수치적 기준·마감기한·도구 예시를 포함하라. 한국어로 작성하라.\n\n=== 내용 ===\n"
+        "너는 실전 컨설턴트다. 아래 내용을 바탕으로 실행 솔루션 7개를 제시하라. "
+        "각 항목은 ①짧은 제목 ②이유(1문장) ③3단계 체크리스트 형태로, "
+        "가능하면 수치 기준·마감기한·도구 예시를 포함하고 한국어로 작성.\n\n=== 내용 ===\n"
         + summary_or_text[:18000]
     )
     j = _gemini({"contents": [{"parts": [{"text": prompt}]}]})
@@ -76,7 +87,7 @@ def propose_solutions(summary_or_text: str) -> str:
 def run_pipeline(youtube_url: str):
     vid = extract_video_id(youtube_url)
     if not vid:
-        raise ValueError("유효한 YouTube 링크가 아님")
+        return {"error": "유효한 YouTube 링크가 아님"}
 
     text = fetch_transcript_text(vid)
     if not text:
