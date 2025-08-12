@@ -1,7 +1,13 @@
-import os, re, json, requests
+import os
+import re
+import json
+import requests
+import tiktoken
 from urllib.parse import urlparse, parse_qs
 from youtube_transcript_api import YouTubeTranscriptApi
-import tiktoken
+from dotenv import load_dotenv
+
+load_dotenv()  # .env 파일에서 환경변수 불러오기
 
 def extract_video_id(youtube_url: str) -> str:
     u = urlparse(youtube_url)
@@ -11,7 +17,7 @@ def extract_video_id(youtube_url: str) -> str:
         qs = parse_qs(u.query)
         if "v" in qs:
             return qs["v"][0]
-    m = re.search(r"(?:v=|/embed/|youtu\.be/)([\w-]{11})", youtube_url)
+    m = re.search(r"(?:v=|/embed/|youtu\\.be/)([\\w-]{11})", youtube_url)
     return m.group(1) if m else None
 
 def fetch_transcript_text(video_id: str):
@@ -23,7 +29,7 @@ def fetch_transcript_text(video_id: str):
 
 def _gemini(payload):
     url = 
-f"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" 
+"https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=" 
 + os.environ["GEMINI_API_KEY"]
     r = requests.post(url, json=payload, timeout=120)
     r.raise_for_status()
@@ -57,33 +63,18 @@ def summarize_long_text(text):
     j = _gemini({"contents": [{"parts": [{"text": final_prompt}]}]})
     return _extract_text(j)
 
-def propose_solutions(summary_or_text: str) -> str:
-    prompt = (
-        "너는 실전 컨설턴트다. 아래 내용을 기반으로 **실행 솔루션 7개**를 제시하라. "
-        "각 항목은 ①짧은 제목 ②왜 필요한지(1문장) ③3단계 체크리스트 로 구성하고, "
-        "가능하면 수치적 기준·마감기한·도구 예시를 포함하라. 한국어로 작성하라.\n\n=== 내용 
-===\n"
-        + summary_or_text[:18000]
-    )
-    j = _gemini({"contents": [{"parts": [{"text": prompt}]}]})
-    return _extract_text(j)
+def run_pipeline(youtube_link):
+    video_id = extract_video_id(youtube_link)
+    if not video_id:
+        return {"error": "Invalid YouTube link."}
 
-def run_pipeline(youtube_url: str):
-    vid = extract_video_id(youtube_url)
-    if not vid:
-        raise ValueError("유효한 YouTube 링크가 아님")
-    
-    text = fetch_transcript_text(vid)
-    if not text:
-        return {"video_id": vid, "summary_brief": "공개 자막이 없습니다. Whisper 단계가 
-필요합니다."}
-    
-    detailed = summarize_long_text(text)
-    solutions = propose_solutions(detailed)
+    transcript_text = fetch_transcript_text(video_id)
+    if not transcript_text:
+        return {"error": "자막을 불러올 수 없습니다."}
 
+    summary = summarize_long_text(transcript_text)
     return {
-        "video_id": vid,
-        "summary_detailed": detailed,
-        "solutions": solutions,
+        "video_id": video_id,
+        "summary": summary
     }
 
