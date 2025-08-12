@@ -6,7 +6,7 @@ from urllib.parse import urlparse, parse_qs
 from youtube_transcript_api import YouTubeTranscriptApi
 from dotenv import load_dotenv
 
-load_dotenv()  # .env 에서 환경변수 불러오기
+load_dotenv()  # .env에서 환경변수 불러오기
 
 def extract_video_id(youtube_url: str) -> str:
     u = urlparse(youtube_url)
@@ -28,8 +28,7 @@ def fetch_transcript_text(video_id: str):
 
 def split_text_by_chars(text: str, chunk_size=6000, overlap=300):
     chunks = []
-    i = 0
-    n = len(text)
+    i, n = 0, len(text)
     while i < n:
         end = min(i + chunk_size, n)
         chunks.append(text[i:end])
@@ -38,7 +37,7 @@ def split_text_by_chars(text: str, chunk_size=6000, overlap=300):
         i = max(0, end - overlap)
     return chunks
 
-def _gemini(payload):
+def _gemini(payload: dict):
     api_key = os.getenv("GEMINI_API_KEY")
     if not api_key:
         return {"error": "GEMINI_API_KEY가 설정되어 있지 않습니다."}
@@ -50,19 +49,17 @@ def _gemini(payload):
         return {"error": f"Gemini HTTP {r.status_code}", "body": r.text}
     return r.json()
 
-def _extract_text(j):
+def _extract_text(resp_json: dict) -> str:
     try:
-        return j["candidates"][0]["content"]["parts"][0]["text"].strip()
+        return resp_json["candidates"][0]["content"]["parts"][0]["text"].strip()
     except Exception:
-        return json.dumps(j, ensure_ascii=False)
+        return json.dumps(resp_json, ensure_ascii=False)
 
 def summarize_long_text(text: str) -> str:
     chunks = split_text_by_chars(text, chunk_size=6000, overlap=300)
     partials = []
     for i, ch in enumerate(chunks, 1):
-        prompt = (
-            f"[부분 {i}/{len(chunks)}] 아래 내용을 핵심 위주로 간결히 요약:\n\n{ch}"
-        )
+        prompt = f"[부분 {i}/{len(chunks)}] 아래 내용을 핵심 위주로 간결히 요약:\n\n{ch}"
         j = _gemini({"contents": [{"parts": [{"text": prompt}]}]})
         partials.append(f"[부분요약 {i}]\n{_extract_text(j)}")
 
