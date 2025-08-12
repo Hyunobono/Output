@@ -7,7 +7,7 @@ from urllib.parse import urlparse, parse_qs
 from youtube_transcript_api import YouTubeTranscriptApi
 from dotenv import load_dotenv
 
-load_dotenv()  # .env 파일에서 환경변수 불러오기
+load_dotenv()  # .env 파일 로드
 
 def extract_video_id(youtube_url: str) -> str:
     u = urlparse(youtube_url)
@@ -17,7 +17,7 @@ def extract_video_id(youtube_url: str) -> str:
         qs = parse_qs(u.query)
         if "v" in qs:
             return qs["v"][0]
-    m = re.search(r"(?:v=|/embed/|youtu\\.be/)([\\w-]{11})", youtube_url)
+    m = re.search(r"(?:v=|/embed/|youtu\.be/)([\w-]{11})", youtube_url)
     return m.group(1) if m else None
 
 def fetch_transcript_text(video_id: str):
@@ -66,7 +66,7 @@ def summarize_long_text(text):
 def propose_solutions(summary_or_text: str) -> str:
     prompt = (
         "너는 실전 컨설턴트다. 아래 내용을 기반으로 **실행 솔루션 7개**를 제시하라. "
-        "각 항목은 ①짧은 제목 ②왜 필요한지(1문장) ③3단계 체크리스트 로 구성하고, "
+        "각 항목은 ①짧은 제목 ②왜 필요한지(1문장) ③3단계 체크리스트로 구성하고, "
         "가능하면 수치적 기준·마감기한·도구 예시를 포함하라. 한국어로 작성하라.\n\n=== 내용 ===\n"
         + summary_or_text[:18000]
     )
@@ -77,15 +77,20 @@ def run_pipeline(youtube_url: str):
     vid = extract_video_id(youtube_url)
     if not vid:
         raise ValueError("유효한 YouTube 링크가 아님")
-    
+
     text = fetch_transcript_text(vid)
     if not text:
-        return {"video_id": vid, "summary_brief": "공개 자막이 없습니다. Whisper 단계가 필요합니다."}
-    
+        return {
+            "video_id": vid,
+            "summary_detailed": None,
+            "solutions": None,
+            "error": "공개 자막이 없습니다. Whisper 단계가 필요합니다."
+        }
+
     detailed = summarize_long_text(text)
     solutions = propose_solutions(detailed)
     return {
         "video_id": vid,
         "summary_detailed": detailed,
-        "solutions": solutions,
+        "solutions": solutions
     }
