@@ -1,0 +1,10 @@
+.venv
+__pycache__/
+*.log
+*.tmp
+*.mp3
+*.wav
+*.m4a
+*.mp4
+out/
+
