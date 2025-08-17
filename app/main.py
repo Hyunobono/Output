@@ -7,7 +7,7 @@ from app.yt_utils import (
     fetch_transcript_if_available,
     download_audio,
     whisper_transcribe_local,
-    list_of_dicts_to_plaintext,   # ✅ 여기로 변경
+    list_of_dicts_to_plaintext,
 )
 from app.summarizer import summarize_long_text
 
@@ -34,13 +34,13 @@ def summarize(req: SummarizeReq):
         trans = fetch_transcript_if_available(req.url, req.lang_priority or ["ko", "en"])
         method = "captions"
         if trans:
-            text = list_of_dicts_to_plaintext(trans)   # ✅ 여기로 변경
+            text = list_of_dicts_to_plaintext(trans)
         else:
             # 2) 자막 없으면 Whisper 로컬
             method = "whisper"
             audio = download_audio(req.url, tmpdir)
             segs = whisper_transcribe_local(audio, language_hint=req.whisper_lang_hint)
-            text = list_of_dicts_to_plaintext(segs)    # ✅ 여기로 변경
+            text = list_of_dicts_to_plaintext(segs)
 
         if not text or len(text.strip()) < 20:
             raise HTTPException(400, detail="Transcript empty or too short")
@@ -54,4 +54,3 @@ def summarize(req: SummarizeReq):
         }
     finally:
         shutil.rmtree(tmpdir, ignore_errors=True)
-
