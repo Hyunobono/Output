@@ -1,0 +1,53 @@
+openapi: 3.0.1
+info:
+  title: YouTube Summarizer
+  description: A tool that summarizes a YouTube video given its URL.
+  version: '1.0'
+servers:
+  - url: https://output-xrhd.onrender.com
+paths:
+  /summarize:
+    post:
+      operationId: summarizeVideo
+      summary: Summarizes a YouTube video.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                url:
+                  type: string
+                  description: The URL of the YouTube video.
+                  example: https://www.youtube.com/watch?v=iG9CE55wbtY
+                lang_priority:
+                  type: array
+                  items:
+                    type: string
+                  description: A list of language codes for subtitle search priority (e.g., ["ko", "en"]).
+                  example:
+                    - ko
+                    - en
+                whisper_lang_hint:
+                  type: string
+                  description: An optional hint for the transcription language (e.g., "ko").
+                  example: ko
+      responses:
+        '200':
+          description: A JSON object containing the summary and other information.
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  source_url:
+                    type: string
+                  method:
+                    type: string
+                  summary:
+                    type: string
+                  partials:
+                    type: array
+                    items:
+                      type: string
