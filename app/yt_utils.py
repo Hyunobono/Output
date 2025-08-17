@@ -76,9 +76,9 @@ def fetch_transcript_if_available(url: str, lang_priority: List[str]) -> Optiona
 # ------------------------------------------
 def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[List[dict]]:
     """
-    Uses authentication if YT_COOKIES_PATH environment variable is set.
+    Uses authentication with cookies from YT_COOKIES_PATH env var.
     """
-    cookies = os.getenv("YT_COOKIES_PATH")
+    cookies_str = os.getenv("YT_COOKIES_PATH")
     tmpdir = tempfile.mkdtemp(prefix="caps_")
 
     # Language candidates (priority + common variants)
@@ -96,9 +96,15 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
         "retries": 3,
         "http_headers": {"User-Agent": _user_agent()},
     }
-    # === 이 부분을 수정합니다 ===
-    if cookies and os.path.exists(cookies):
+    if cookies_str:
         ydl_opts["cookiefile"] = os.path.join(tmpdir, "cookies.txt")
+        with open(ydl_opts["cookiefile"], "w", encoding="utf-8") as f:
+            f.write("# Netscape HTTP Cookie File\n")
+            for c in cookies_str.split(';'):
+                if '=' in c:
+                    name, value = c.strip().split('=', 1)
+                    domain = ".youtube.com" if "youtube.com" in c else "youtube.com"
+                    f.write(f"{domain}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -175,11 +181,11 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
 def download_audio(url: str, outdir: str) -> str:
     """
     Extracts only the audio from a video (m4a/...).
-    Uses cookies if YT_COOKIES_PATH is set.
+    Uses cookies from YT_COOKIES_PATH env var.
     """
     os.makedirs(outdir, exist_ok=True)
     base_name = uuid.uuid4().hex
-    cookies = os.getenv("YT_COOKIES_PATH")
+    cookies_str = os.getenv("YT_COOKIES_PATH")
 
     ydl_opts = {
         "format": "bestaudio/best",
@@ -192,9 +198,15 @@ def download_audio(url: str, outdir: str) -> str:
         "retries": 3,
         "http_headers": {"User-Agent": _user_agent()},
     }
-    # === 이 부분을 수정합니다 ===
-    if cookies and os.path.exists(cookies):
+    if cookies_str:
         ydl_opts["cookiefile"] = os.path.join(outdir, "cookies.txt")
+        with open(ydl_opts["cookiefile"], "w", encoding="utf-8") as f:
+            f.write("# Netscape HTTP Cookie File\n")
+            for c in cookies_str.split(';'):
+                if '=' in c:
+                    name, value = c.strip().split('=', 1)
+                    domain = ".youtube.com" if "youtube.com" in c else "youtube.com"
+                    f.write(f"{domain}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
