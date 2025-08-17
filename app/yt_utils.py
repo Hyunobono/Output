@@ -1,4 +1,3 @@
-# app/yt_utils.py
 from typing import List, Optional
 import os
 import re
