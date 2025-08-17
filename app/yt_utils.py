@@ -237,3 +237,5 @@ def whisper_transcribe_local(audio_path: str, language_hint: Optional[str] = Non
 def list_of_dicts_to_plaintext(data: List[dict]) -> str:
     """Converts a list of dictionaries with a 'text' key into a single plaintext string."""
     return "\n".join([x.get("text", "").strip() for x in data if x.get("text")])
+
+
