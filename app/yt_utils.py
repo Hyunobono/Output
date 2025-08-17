@@ -80,7 +80,7 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
     """
     cookies_str = os.getenv("YT_COOKIES_PATH")
     tmpdir = tempfile.mkdtemp(prefix="caps_")
-
+    
     # Language candidates (priority + common variants)
     langs = list(dict.fromkeys(lang_priority + ["ko", "ko-KR", "en", "en-US", "en-GB"]))
 
@@ -97,14 +97,7 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
         "http_headers": {"User-Agent": _user_agent()},
     }
     if cookies_str:
-        ydl_opts["cookiefile"] = os.path.join(tmpdir, "cookies.txt")
-        with open(ydl_opts["cookiefile"], "w", encoding="utf-8") as f:
-            f.write("# Netscape HTTP Cookie File\n")
-            for c in cookies_str.split(';'):
-                if '=' in c:
-                    name, value = c.strip().split('=', 1)
-                    domain = ".youtube.com" if "youtube.com" in c else "youtube.com"
-                    f.write(f"{domain}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
+        ydl_opts["http_headers"]["Cookie"] = cookies_str
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -166,8 +159,8 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
                 if parsed:
                     return parsed
 
-        parsed = parse_vtt(vtts[0])
-        return parsed if parsed else None
+            parsed = parse_vtt(vtts[0])
+            return parsed if parsed else None
 
     except Exception:
         return None
@@ -199,14 +192,7 @@ def download_audio(url: str, outdir: str) -> str:
         "http_headers": {"User-Agent": _user_agent()},
     }
     if cookies_str:
-        ydl_opts["cookiefile"] = os.path.join(outdir, "cookies.txt")
-        with open(ydl_opts["cookiefile"], "w", encoding="utf-8") as f:
-            f.write("# Netscape HTTP Cookie File\n")
-            for c in cookies_str.split(';'):
-                if '=' in c:
-                    name, value = c.strip().split('=', 1)
-                    domain = ".youtube.com" if "youtube.com" in c else "youtube.com"
-                    f.write(f"{domain}\tTRUE\t/\tFALSE\t0\t{name}\t{value}\n")
+        ydl_opts["http_headers"]["Cookie"] = cookies_str
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
