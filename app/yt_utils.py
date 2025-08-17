@@ -96,8 +96,9 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
         "retries": 3,
         "http_headers": {"User-Agent": _user_agent()},
     }
+    # === 이 부분을 수정합니다 ===
     if cookies and os.path.exists(cookies):
-        ydl_opts["cookiefile"] = cookies
+        ydl_opts["cookiefile"] = os.path.join(tmpdir, "cookies.txt")
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -191,8 +192,9 @@ def download_audio(url: str, outdir: str) -> str:
         "retries": 3,
         "http_headers": {"User-Agent": _user_agent()},
     }
+    # === 이 부분을 수정합니다 ===
     if cookies and os.path.exists(cookies):
-        ydl_opts["cookiefile"] = cookies
+        ydl_opts["cookiefile"] = os.path.join(outdir, "cookies.txt")
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -237,5 +239,3 @@ def whisper_transcribe_local(audio_path: str, language_hint: Optional[str] = Non
 def list_of_dicts_to_plaintext(data: List[dict]) -> str:
     """Converts a list of dictionaries with a 'text' key into a single plaintext string."""
     return "\n".join([x.get("text", "").strip() for x in data if x.get("text")])
-
-
