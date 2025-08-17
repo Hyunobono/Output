@@ -12,7 +12,7 @@ from youtube_transcript_api import YouTubeTranscriptApi, TranscriptsDisabled
 
 
 # ---------------------------
-# 공통: 유저 에이전트 / 비디오ID
+# Common: User Agent / Video ID
 # ---------------------------
 def _user_agent() -> str:
     return (
@@ -23,84 +23,72 @@ def _user_agent() -> str:
 
 
 def extract_video_id(url: str) -> str:
-    """유튜브 URL에서 video_id(11자) 추출. 못 찾으면 원문 반환."""
+    """Extracts the 11-character video_id from a YouTube URL. Returns the original string if not found."""
     m = re.search(r'(?:v=|be/|shorts/)([A-Za-z0-9_-]{11})', url)
     return m.group(1) if m else url
 
 
 # -----------------------------------
-# 1) youtube_transcript_api 로 우선 시도
-# 2) 실패 시 yt-dlp 로 VTT 받아 파싱
+# 1) Try with youtube_transcript_api first
+# 2) Fallback to yt-dlp to download and parse VTT
 # -----------------------------------
 def fetch_transcript_if_available(url: str, lang_priority: List[str]) -> Optional[List[dict]]:
     """
-    성공 시 [{"text": str, "start": float, "end": float}, ...] 반환. 실패 시 None.
+    Returns [{"text": str, "start": float, "end": float}, ...] or
+    the original youtube_transcript_api format ({"text", "start", "duration"}) on success. Returns None on failure.
     """
     vid = extract_video_id(url)
     prio = lang_priority or ["ko", "en"]
 
-    # 1) 공식/자동 자막 API
+    # 1) Official/auto-generated subtitle API
     try:
-        # 우선순위 언어 우선
+        # Try prioritized languages
         for code in prio:
             try:
                 t = YouTubeTranscriptApi.get_transcript(vid, languages=[code])
                 if t:
-                    # API는 duration만 주므로 end를 만들어 맞춰줄 수도 있지만
-                    # downstream에서 text만 쓰므로 그대로 반환
                     return t
             except Exception:
                 pass
 
-        # 자동 생성 자막 허용
-        try:
-            transcripts = YouTubeTranscriptApi.list_transcripts(vid)
-            for tr in transcripts:
-                if tr.is_generated:
-                    try:
-                        t = tr.fetch()
-                        if t:
-                            return t
-                    except Exception:
-                        continue
-        except Exception:
-            pass
+        # Allow for auto-generated subtitles
+        transcripts = YouTubeTranscriptApi.list_transcripts(vid)
+        for tr in transcripts:
+            if tr.is_generated:
+                try:
+                    t = tr.fetch()
+                    if t:
+                        return t
+                except Exception:
+                    continue
 
     except TranscriptsDisabled:
-        # 자막 완전 비활성화
         pass
     except Exception:
-        # 기타 에러는 조용히 넘어가고 yt-dlp 시도
         pass
 
-    # 2) yt-dlp 로 .vtt 자막 내려받아 파싱
+    # 2) Fallback: Use yt-dlp to download and parse .vtt subtitles
     return fetch_captions_via_ytdlp(url, prio)
 
 
 # ------------------------------------------
-# yt-dlp로 .vtt 자막(자동 포함) 받아서 파싱
-# 반환: [{"start": float, "end": float, "text": str}, ...]
+# Use yt-dlp to download and parse .vtt subtitles (including auto-generated)
+# Returns: [{"start": float, "end": float, "text": str}, ...]
 # ------------------------------------------
 def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[List[dict]]:
     """
-    YT_COOKIES_PATH 환경변수에 cookies.txt 경로가 있으면 인증 사용.
+    Uses authentication if YT_COOKIES_PATH environment variable is set.
     """
     cookies = os.getenv("YT_COOKIES_PATH")
     tmpdir = tempfile.mkdtemp(prefix="caps_")
 
-    # 언어 후보 (우선순위 + 흔한 변형)
-    langs: List[str] = []
-    for c in (lang_priority or []):
-        if c and c not in langs:
-            langs.append(c)
-    for extra in ["ko", "ko-KR", "en", "en-US", "en-GB"]:
-        if extra not in langs:
-            langs.append(extra)
+    # Language candidates (priority + common variants)
+    langs = list(dict.fromkeys(lang_priority + ["ko", "ko-KR", "en", "en-US", "en-GB"]))
 
     ydl_opts = {
         "skip_download": True,
         "writesubtitles": True,
-        "writeautomaticsub": True,           # 자동 생성 자막 허용
+        "writeautomaticsub": True,
         "subtitleslangs": langs,
         "subtitlesformat": "vtt",
         "outtmpl": f"{tmpdir}/%(id)s.%(ext)s",
@@ -117,12 +105,11 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
             info = ydl.extract_info(url, download=True)
             vid = info.get("id")
 
-        # 다운로드된 vtt들
         vtts = glob.glob(f"{tmpdir}/{vid}*.vtt")
         if not vtts:
             return None
 
-        # 간단 VTT 파서
+        # Timestamp regex (HH:MM:SS.mmm --> HH:MM:SS.mmm)
         ts_re = re.compile(r"(\d+:\d{2}:\d{2}\.\d{3})\s*-->\s*(\d+:\d{2}:\d{2}\.\d{3})")
 
         def to_sec(ts: str) -> float:
@@ -155,7 +142,6 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
                 line_s = line.strip()
                 m = ts_re.match(line_s)
                 if m:
-                    # 타임스탬프 만나면 이전 블록 flush
                     flush()
                     start_t = to_sec(m.group(1))
                     end_t = to_sec(m.group(2))
@@ -167,7 +153,6 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
             flush()
             return items
 
-        # 언어 우선 매칭
         for code in langs:
             cand = [p for p in vtts if f".{code}." in p]
             if cand:
@@ -175,7 +160,6 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
                 if parsed:
                     return parsed
 
-        # 없으면 첫 번째 vtt
         parsed = parse_vtt(vtts[0])
         return parsed if parsed else None
 
@@ -186,20 +170,20 @@ def fetch_captions_via_ytdlp(url: str, lang_priority: List[str]) -> Optional[Lis
 
 
 # --------------------------------
-# 오디오 다운로드 (쿠키 지원)
+# Download audio (with cookies support)
 # --------------------------------
 def download_audio(url: str, outdir: str) -> str:
     """
-    영상에서 오디오만 추출(m4a/…)
-    YT_COOKIES_PATH 있으면 쿠키 사용.
+    Extracts only the audio from a video (m4a/...).
+    Uses cookies if YT_COOKIES_PATH is set.
     """
     os.makedirs(outdir, exist_ok=True)
-    base = os.path.join(outdir, uuid.uuid4().hex)
+    base_name = uuid.uuid4().hex
     cookies = os.getenv("YT_COOKIES_PATH")
 
     ydl_opts = {
         "format": "bestaudio/best",
-        "outtmpl": base + ".%(ext)s",
+        "outtmpl": os.path.join(outdir, f"{base_name}.%(ext)s"),
         "postprocessors": [
             {"key": "FFmpegExtractAudio", "preferredcodec": "m4a", "preferredquality": "192"}
         ],
@@ -211,29 +195,30 @@ def download_audio(url: str, outdir: str) -> str:
     if cookies and os.path.exists(cookies):
         ydl_opts["cookiefile"] = cookies
 
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        ydl.download([url])
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            filename = ydl.prepare_filename(info)
+            if filename and os.path.exists(filename):
+                return filename
 
-    # 확장자 탐색
-    for ext in (".m4a", ".mp3", ".wav", ".aac", ".m4b"):
-        cand = base + ext
-        if os.path.exists(cand):
-            return cand
+    except Exception as e:
+        raise RuntimeError(f"Audio download failed: {e}")
 
-    raise RuntimeError("Audio download failed")
+    raise RuntimeError("Audio download failed to return a file path.")
 
 
 # --------------------------------
-# Whisper 로컬 STT (faster-whisper)
+# Local Whisper STT (faster-whisper)
 # --------------------------------
 def whisper_transcribe_local(audio_path: str, language_hint: Optional[str] = None) -> List[dict]:
     """
-    WHISPER_MODEL (기본 tiny) 사용.
-    반환: [{"text": str, "start": float, "end": float}, ...]
+    Uses WHISPER_MODEL (default: tiny).
+    Returns: [{"text": str, "start": float, "end": float}, ...]
     """
     from faster_whisper import WhisperModel
 
-    model_name = os.getenv("WHISPER_MODEL", "tiny")  # tiny/small/medium/large-v3 등
+    model_name = os.getenv("WHISPER_MODEL", "tiny")
     model = WhisperModel(model_name, device="cpu", compute_type="int8")
 
     segments, _ = model.transcribe(audio_path, language=language_hint, vad_filter=True)
@@ -248,14 +233,8 @@ def whisper_transcribe_local(audio_path: str, language_hint: Optional[str] = Non
 
 
 # -----------------------
-# 텍스트 변환 유틸
+# Text conversion utility
 # -----------------------
-def transcript_to_plaintext(trans: List[dict]) -> str:
-    """자막 리스트(공식/자동/VTT파싱 공통) → 순수 텍스트"""
-    return "\n".join([x.get("text", "").strip() for x in trans if x.get("text")])
-
-
-def whisper_to_plaintext(segments: List[dict]) -> str:
-    """Whisper 세그먼트 → 순수 텍스트"""
-    return "\n".join([x.get("text", "").strip() for x in segments if x.get("text")])
-
+def list_of_dicts_to_plaintext(data: List[dict]) -> str:
+    """Converts a list of dictionaries with a 'text' key into a single plaintext string."""
+    return "\n".join([x.get("text", "").strip() for x in data if x.get("text")])
